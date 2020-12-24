@@ -5228,3 +5228,443 @@ METHOD update_so_line_item.
   ENDIF.
 ENDMETHOD.
 ENDCLASS.
+
+FUNCTION zptp_i1058_ordchg_upd_po.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  TABLES
+*"      IDOC_CONTRL STRUCTURE  EDIDC
+*"      IDOC_DATA STRUCTURE  EDIDD
+*"      IDOC_STATUS STRUCTURE  BDIDOCSTAT
+*"----------------------------------------------------------------------
+
+**************************************************************************
+*  Title             :  ORDCHG FROM E2OPEN to S4                         *
+*  Include           :  ZPTPI1058_ORDCHNG_UPD_PO                         *
+*  Author            :  Kishore.S                                        *
+*  Creation Date     :  07/10/2020                                       *
+*  Object ID         :  PTPI1058                                         *
+*  Business Contact  :  Dhinesh Kulaseharan                              *
+*  TS Name           :  TS_PTPI1058_ORDCHG interface from E2OPEN to S4_V1*
+*  TS Author         :  Kishore.S                                        *
+*  Description       :  Update PO with data from E2OPEN                  *
+*  Transport Request :  S4DK914229                                       *
+*  Misc Notes        :                                                   *
+*&-----------------------------------------------------------------------*
+*& Change History:                                                       *
+*&=======================================================================*
+*& Change ID | Date       | Request #  | Changed By   | Description      *
+*&-----------------------------------------------------------------------*
+**& CR#1203   28/08/2020   S4DK914229   24086849     Price change for ZMZP
+** CR997
+** CR_1839    26/11/2020   S4DK949398   24093840    Additional Mapping for
+**                                                  existing ORDCHG
+*&-----------------------------------------------------------------------*
+*&-----------------------------------------------------------------------*
+**&----------------------------------------------------------------------*
+**& INCLUDE ZPTPI1058_ORDCHNG_UPD_PO
+**&----------------------------------------------------------------------*
+  "Utility class for I1058
+  DATA(lrf_update_po) = NEW zptpcl_i1058_ordchg( ).
+
+  DATA:ls_ekpo_split_temp TYPE lrf_update_po->gty_ekpo_detail,
+       lv_memory_1059     TYPE char20,
+       lt_ekpo_split_temp TYPE STANDARD TABLE OF lrf_update_po->gty_ekpo_detail.
+  " Local data declarations
+  CONSTANTS:lc_msgid       TYPE bdidocstat-msgid VALUE 'ZPTP_1058',
+            lc_msgno_001   TYPE sy-msgno         VALUE '001',
+            lc_msgno_002   TYPE sy-msgno         VALUE '002',
+            lc_idoc_error  TYPE edi_ds-status VALUE '51',
+            lc_idoc_sucess TYPE edi_ds-status VALUE '53',
+            lc_ptp_1059    TYPE c LENGTH 9 VALUE 'ZPTP_1059'.
+
+
+
+  "Copy IDOC_DATA to tempory table
+  CLEAR: zptpcl_i1058_ordchg=>gv_idoc_err, zptpcl_i1058_ordchg=>gv_bapi_call_count.
+  zptpcl_i1058_ordchg=>gt_idoc_data = idoc_data[].
+
+  IF line_exists( idoc_contrl[ 1 ] ).
+    DATA(ls_idoc_status) = idoc_contrl[ 1 ].
+    zptpcl_i1058_ordchg=>gv_idco_number = ls_idoc_status-docnum.
+  ENDIF.
+
+***************************************************************************
+  "Set global variables
+***************************************************************************
+  lrf_update_po->set_data( ).
+
+  "Always use dynamic memory id.
+  "Export to program "RV61B964"
+  CONCATENATE zptpcl_i1058_ordchg=>gv_po_num lc_ptp_1059 INTO lv_memory_1059.
+  EXPORT zptpcl_i1058_ordchg=>gt_idoc_data TO DATABASE indx(zk) ID lv_memory_1059. " Added by IDOC_INPUT_ORDCHG to capture IDOC DATA in PTPI1059
+
+  "Check for error
+  IF zptpcl_i1058_ordchg=>gs_return-type EQ if_mrm_constants=>gc_msgty_e.
+    "Update IDOC status here
+    IF line_exists( idoc_contrl[ 1 ] ).
+      idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+      idoc_status-status = lc_idoc_error.
+      zptpcl_i1058_ordchg=>gv_idoc_err = abap_true.
+      idoc_status-msgty  = if_mrm_constants=>gc_msgty_e.
+      idoc_status-repid  = sy-repid.
+      idoc_status-msgid  = lc_msgid.
+      IF zptpcl_i1058_ordchg=>gs_return-number IS NOT INITIAL.
+        idoc_status-msgno  = zptpcl_i1058_ordchg=>gs_return-number.
+        idoc_status-msgv1  = zptpcl_i1058_ordchg=>gs_return-message_v1.
+      ELSE.
+        idoc_status-msgno  = lc_msgno_001.
+        idoc_status-msgv1  = zptpcl_i1058_ordchg=>gs_return-message.
+      ENDIF.
+      APPEND idoc_status.
+      RETURN.
+    ENDIF.
+  ENDIF.
+
+***************************************************************************************
+  "Changes to be made in header and populate Item Table
+***************************************************************************************
+  lrf_update_po->fetch_item_header_indicators(  IMPORTING es_return = DATA(ls_return) ).
+  IF ls_return-type EQ if_mrm_constants=>gc_msgty_e .
+    "Update IDOC status here
+    IF line_exists( idoc_contrl[ 1 ] ).
+      idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+      idoc_status-status = lc_idoc_error.
+      zptpcl_i1058_ordchg=>gv_idoc_err = abap_true.
+      idoc_status-msgty  = if_mrm_constants=>gc_msgty_e.
+      idoc_status-msgv1  = ls_return-message_v1.
+      IF ls_return-message_v2 IS NOT INITIAL.
+        idoc_status-msgv1  = zptpcl_i1058_ordchg=>gv_po_num.
+        idoc_status-msgv2  = ls_return-message_v2.
+      ENDIF.
+      idoc_status-repid  = sy-repid.
+      idoc_status-msgid  = lc_msgid.
+      IF ls_return-number IS INITIAL.
+        idoc_status-msgno  = lc_msgno_001.
+      ELSE.
+        idoc_status-msgno  = ls_return-number.
+      ENDIF.
+      APPEND idoc_status.
+    ENDIF.
+  ENDIF.
+
+*******************************************************************************
+*Update PO header
+*******************************************************************************
+*Check for header level changes
+  IF zptpcl_i1058_ordchg=>gv_only_header_change IS NOT INITIAL AND zptpcl_i1058_ordchg=>gv_idoc_err <> abap_true
+       AND zptpcl_i1058_ordchg=>gv_update_so_partner IS INITIAL. "Added for CR1203/997 by 24086849 on 8/31/2020
+    "Call method to uupdate header
+    zptpcl_i1058_ordchg=>gv_bapi_call_count = abap_true. "Added by 24072555 on 29th Aug 2020
+    lrf_update_po->update_po_header( EXPORTING iv_call_count = zptpcl_i1058_ordchg=>gv_bapi_call_count"Added by 24072555 on 29th Aug 2020
+                                     IMPORTING es_return = ls_return
+                                     CHANGING ct_idoc_status = idoc_status[] ).
+    "Check for return messges
+    IF ls_return-type EQ if_mrm_constants=>gc_msgty_e.
+      "Update IDOC status here
+      IF line_exists( idoc_contrl[ 1 ] ).
+        idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+        idoc_status-status = lc_idoc_error.
+        zptpcl_i1058_ordchg=>gv_idoc_err = abap_true.
+        idoc_status-msgty  = if_mrm_constants=>gc_msgty_e.
+        idoc_status-msgv1  = ls_return-message_v1.
+        IF ls_return-message_v2 IS NOT INITIAL.
+          idoc_status-msgv1  = zptpcl_i1058_ordchg=>gv_po_num.
+          idoc_status-msgv2  = ls_return-message_v2.
+        ENDIF.
+        idoc_status-repid  = sy-repid.
+        idoc_status-msgid  = lc_msgid.
+        IF ls_return-number IS INITIAL.
+          idoc_status-msgno  = lc_msgno_001.
+        ELSE.
+          idoc_status-msgno  = ls_return-number.
+        ENDIF.
+        APPEND idoc_status.
+      ENDIF.
+    ELSEIF ls_return-type EQ if_mrm_constants=>gc_msgty_s.
+      "Update IDOC status here
+      IF line_exists( idoc_contrl[ 1 ] ).
+        idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+        idoc_status-status = lc_idoc_sucess.
+        idoc_status-msgty  = if_mrm_constants=>gc_msgty_s.
+        idoc_status-msgv1  = ls_return-message.
+        idoc_status-repid  = sy-repid.
+        idoc_status-msgid  = lc_msgid.
+        idoc_status-msgno  = lc_msgno_002.
+        APPEND idoc_status.
+      ENDIF.
+    ENDIF.
+    "If only header changes were made
+    RETURN.
+  ENDIF.
+
+  "Proceed only if there are item level change
+  IF zptpcl_i1058_ordchg=>gt_ekpo_detail IS NOT INITIAL
+     OR zptpcl_i1058_ordchg=>gv_update_so_partner IS NOT INITIAL. "Added for CR# 997 by 24086849 on 8/31/2020
+    "PSP and OSP are split condition
+    DATA(lt_ekpo_detail) = zptpcl_i1058_ordchg=>gt_ekpo_detail.
+
+    DATA(lt_ekpo_detail_split) = lt_ekpo_detail.
+
+    DELETE lt_ekpo_detail_split WHERE ctyp NE zptpcl_i1058_ordchg=>gc_psp
+                                  AND ctyp NE zptpcl_i1058_ordchg=>gc_osp.
+    LOOP AT lt_ekpo_detail_split ASSIGNING FIELD-SYMBOL(<lfs_detail_split>).
+      IF line_exists( lt_ekpo_detail[ ctyp =  zptpcl_i1058_ordchg=>gc_lt1 ebelp = <lfs_detail_split>-ebelp idoc_line = <lfs_detail_split>-idoc_line ] ).
+        <lfs_detail_split>-lt1_text = lt_ekpo_detail[ ctyp =  zptpcl_i1058_ordchg=>gc_lt1 ebelp = <lfs_detail_split>-ebelp  ]-lt1_text.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_ekpo_detail_split IS NOT INITIAL.
+      SORT lt_ekpo_detail_split BY ebeln ebelp.
+      DESCRIBE TABLE lt_ekpo_detail_split LINES DATA(lv_line_count).
+      LOOP AT lt_ekpo_detail_split ASSIGNING FIELD-SYMBOL(<lfs_ekpo_detail_split>).
+        DATA(lv_tabix) = sy-tabix.
+        ls_ekpo_split_temp = <lfs_ekpo_detail_split>.
+        APPEND ls_ekpo_split_temp TO lt_ekpo_split_temp.
+        IF lv_tabix LT lv_line_count.
+          READ TABLE lt_ekpo_detail_split ASSIGNING FIELD-SYMBOL(<lfs>) INDEX ( lv_tabix + 1 ).
+          IF <lfs> IS ASSIGNED .
+            IF <lfs>-ebelp <> ls_ekpo_split_temp-ebelp.
+              lrf_update_po->update_po_split(
+                                EXPORTING
+                             it_ekpo_detail = lt_ekpo_split_temp
+                                IMPORTING
+                             es_return = ls_return
+                                CHANGING
+                         ct_idoc_status = idoc_status[] ).
+              CLEAR lt_ekpo_split_temp.
+              IF ls_return-type EQ if_mrm_constants=>gc_msgty_e .
+                "Update IDOC status here
+                IF line_exists( idoc_contrl[ 1 ] ).
+                  idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+                  idoc_status-status = lc_idoc_error.
+                  zptpcl_i1058_ordchg=>gv_idoc_err = abap_true.
+                  idoc_status-msgty  = if_mrm_constants=>gc_msgty_e.
+                  idoc_status-msgv1  = ls_return-message_v1.
+                  IF ls_return-message_v2 IS NOT INITIAL.
+                    IF idoc_status-msgv1 IS INITIAL.
+                      idoc_status-msgv1  = zptpcl_i1058_ordchg=>gv_po_num.
+                    ENDIF.
+                    idoc_status-msgv2  = ls_return-message_v2.
+                  ENDIF.
+                  idoc_status-repid  = sy-repid.
+                  idoc_status-msgid  = lc_msgid.
+                  IF ls_return-number IS INITIAL.
+                    idoc_status-msgno  = lc_msgno_001.
+                  ELSE.
+                    idoc_status-msgno  = ls_return-number.
+                  ENDIF.
+                  APPEND idoc_status.
+                ENDIF.
+              ELSEIF ls_return-type EQ if_mrm_constants=>gc_msgty_s.
+                "Update IDOC status here
+                IF line_exists( idoc_contrl[ 1 ] ).
+                  idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+                  idoc_status-status = lc_idoc_sucess.
+                  idoc_status-msgty  = if_mrm_constants=>gc_msgty_s.
+                  idoc_status-msgv1  = ls_return-message.
+                  idoc_status-repid  = sy-repid.
+                  idoc_status-msgid  = lc_msgid.
+                  idoc_status-msgno  = lc_msgno_002.
+                  APPEND idoc_status.
+                ENDIF.
+              ENDIF.
+            ENDIF.
+          ENDIF.
+        ELSE.
+          zptpcl_i1058_ordchg=>gv_bapi_call_count = abap_true. "Added by 24072555 on 29th Aug 2020
+          lrf_update_po->update_po_split(
+                      EXPORTING
+                        it_ekpo_detail = lt_ekpo_split_temp
+                        iv_call_count = zptpcl_i1058_ordchg=>gv_bapi_call_count" Added by 24072555 on 29th Aug 2020
+                     IMPORTING
+                       es_return = ls_return
+                     CHANGING
+                       ct_idoc_status = idoc_status[] ).
+          CLEAR lt_ekpo_split_temp.
+
+          IF ls_return-type EQ if_mrm_constants=>gc_msgty_e .
+            "Update IDOC status here
+            IF line_exists( idoc_contrl[ 1 ] ).
+              idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+              idoc_status-status = lc_idoc_error.
+              zptpcl_i1058_ordchg=>gv_idoc_err = abap_true.
+              idoc_status-msgty  = if_mrm_constants=>gc_msgty_e.
+              idoc_status-msgv1  = ls_return-message_v1.
+              IF ls_return-message_v2 IS NOT INITIAL.
+                IF idoc_status-msgv1 IS INITIAL.
+                  idoc_status-msgv1  = zptpcl_i1058_ordchg=>gv_po_num.
+                ENDIF.
+                idoc_status-msgv2  = ls_return-message_v2.
+              ENDIF.
+              idoc_status-repid  = sy-repid.
+              idoc_status-msgid  = lc_msgid.
+              IF ls_return-number IS INITIAL.
+                idoc_status-msgno  = lc_msgno_001.
+              ELSE.
+                idoc_status-msgno  = ls_return-number.
+              ENDIF.
+              APPEND idoc_status.
+            ENDIF.
+          ELSEIF ls_return-type EQ if_mrm_constants=>gc_msgty_s.
+*            UPDATE idoc status here
+            IF line_exists( idoc_contrl[ 1 ] ).
+              idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+              idoc_status-status = lc_idoc_sucess.
+              idoc_status-msgty  = if_mrm_constants=>gc_msgty_s.
+              idoc_status-msgv1  = ls_return-message.
+              idoc_status-repid  = sy-repid.
+              idoc_status-msgid  = lc_msgid.
+              idoc_status-msgno  = lc_msgno_002.
+              APPEND idoc_status.
+            ENDIF.
+          ENDIF.
+
+        ENDIF.
+      ENDLOOP.
+***************************************************************************************************
+*Update PO Split Scenario
+***************************************************************************************************
+*      ENDLOOP.
+    ENDIF.
+*  ELSE.
+** Split scenario is handled in above logic so exclude those items.
+*BOC by 24072555 on 29th Aug 2020
+    IF line_exists( lt_ekpo_detail[ ctyp =  zptpcl_i1058_ordchg=>gc_psp ] ).
+      CLEAR lt_ekpo_detail.
+    ELSEIF line_exists( lt_ekpo_detail[ ctyp =  zptpcl_i1058_ordchg=>gc_osp ] ).
+      CLEAR lt_ekpo_detail.
+    ENDIF.
+*    DELETE lt_ekpo_detail WHERE ( ctyp EQ zptpcl_i1058_ordchg=>gc_psp
+*                             OR ctyp EQ zptpcl_i1058_ordchg=>gc_osp ).
+*EOC by 24072555 on 29th Aug 2020
+    DATA(lt_ekpo_detail_so) = lt_ekpo_detail.
+    DELETE lt_ekpo_detail_so WHERE ctyp NOT IN zptpcl_i1058_ordchg=>gr_start_from_so.
+    DATA(lt_ekpo_detail_po) = lt_ekpo_detail.
+    DELETE lt_ekpo_detail_po WHERE ctyp IN zptpcl_i1058_ordchg=>gr_start_from_so.
+*BOC by 24072555 on 29th Aug 2020
+*If there is no separate PO changes then this will be final BAPI call for PO changes, so set final BAPI call flag
+    IF lt_ekpo_detail_so IS NOT INITIAL AND lt_ekpo_detail_po IS INITIAL.
+      zptpcl_i1058_ordchg=>gv_bapi_call_count = abap_true.
+    ENDIF.
+*EOC by 24072555 on 29th Aug 2020
+    IF lt_ekpo_detail_so IS NOT INITIAL
+      OR zptpcl_i1058_ordchg=>gv_update_so_partner IS NOT INITIAL. "Added for CR# 997 by 24086849 on 8/31/2020
+***************************************************************************************************
+*Update SO Line item based on Starting from SO Scenario
+***************************************************************************************************
+      CALL METHOD lrf_update_po->update_so_line_item
+        EXPORTING
+          it_ekpo_detail = lt_ekpo_detail_so
+          iv_call_count  = zptpcl_i1058_ordchg=>gv_bapi_call_count " Added by 24072555 on 29th Aug 2020
+        IMPORTING
+          es_return      = ls_return
+        CHANGING
+          ct_idoc_status = idoc_status[].
+
+      IF ls_return-type = if_mrm_constants=>gc_msgty_e.
+        IF ls_return-id IS INITIAL.
+          ls_return-id = lc_msgid.
+        ENDIF.
+        IF ls_return-number IS INITIAL.
+          ls_return-number = lc_msgno_001.
+        ENDIF.
+        DATA(ls_idoc_stat) = VALUE bdidocstat( docnum = zptpcl_i1058_ordchg=>gv_idco_number
+                                              status  = 51
+                                              msgty  = ls_return-type
+                                              msgid  = ls_return-id
+                                              msgno  = ls_return-number
+                                              msgv1  = ls_return-message_v1
+                                              msgv2  = ls_return-message_v2
+                                              msgv3  = ls_return-message_v3
+                                              msgv4  = ls_return-message_v4
+                                              repid  = sy-repid
+                                                       ).
+
+        APPEND ls_idoc_stat TO idoc_status.
+      ENDIF.
+    ENDIF.
+*    DATA(lt_ekpo_detail_po) = lt_ekpo_detail.
+*    DELETE lt_ekpo_detail_po WHERE ctyp IN zptpcl_i1058_ordchg=>gr_start_from_so.
+    IF lt_ekpo_detail_po IS NOT INITIAL.
+      "This will always be final call for PO changes, so set final BAPI call flag as X
+      zptpcl_i1058_ordchg=>gv_bapi_call_count = abap_true."Added by 24072555 on 29th Aug 2020
+***************************************************************************************************
+*Update PO Line item based on Starting from PO Scenario
+***************************************************************************************************
+      CALL METHOD lrf_update_po->update_po_line_items
+        EXPORTING
+          it_ekpo_detail = lt_ekpo_detail_po
+          iv_call_count  = zptpcl_i1058_ordchg=>gv_bapi_call_count "Added by 24072555 on 29th Aug 2020
+        IMPORTING
+          es_return      = ls_return
+          et_return      = DATA(lt_return_1058)                 " Table type for structure BAPIRET1
+        CHANGING
+          ct_idoc_status = idoc_status[].
+      IF lt_return_1058 IS NOT INITIAL.
+        LOOP AT lt_return_1058 ASSIGNING FIELD-SYMBOL(<lfs_return_1058>).
+          IF <lfs_return_1058>-type EQ if_mrm_constants=>gc_msgty_e.
+            "Update IDOC status here
+            IF line_exists( idoc_contrl[ 1 ] ).
+              idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+              idoc_status-status = lc_idoc_error.
+              zptpcl_i1058_ordchg=>gv_idoc_err = abap_true.
+              idoc_status-msgty  = if_mrm_constants=>gc_msgty_e.
+              idoc_status-msgv1  = <lfs_return_1058>-message_v1.
+              IF ls_return-message_v2 IS NOT INITIAL.
+                idoc_status-msgv1  = zptpcl_i1058_ordchg=>gv_po_num.
+                idoc_status-msgv2  = <lfs_return_1058>-message_v2.
+              ENDIF.
+              idoc_status-repid  = sy-repid.
+              idoc_status-msgid  = lc_msgid.
+              IF ls_return-number IS INITIAL.
+                idoc_status-msgno  = lc_msgno_001.
+              ELSE.
+                idoc_status-msgno  = <lfs_return_1058>-number.
+              ENDIF.
+              APPEND idoc_status.
+            ENDIF.
+          ELSEIF <lfs_return_1058>-type EQ if_mrm_constants=>gc_msgty_s.
+            "Update IDOC status here
+            IF line_exists( idoc_contrl[ 1 ] ).
+              idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+              idoc_status-status = lc_idoc_sucess.
+              idoc_status-msgty  = if_mrm_constants=>gc_msgty_s.
+              idoc_status-msgv1  = <lfs_return_1058>-message.
+              idoc_status-repid  = sy-repid.
+              idoc_status-msgid  = lc_msgid.
+              idoc_status-msgno  = lc_msgno_002.
+              APPEND idoc_status.
+            ENDIF.
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+***************************************************************************************************
+*Clean Up
+***************************************************************************************************
+  lrf_update_po->clear_data( ).
+*If idoc_status is empty populate it will standard error message
+  IF NOT line_exists( idoc_status[ 1 ] ).
+    IF line_exists( idoc_contrl[ 1 ] ).
+      idoc_status-docnum = zptpcl_i1058_ordchg=>gv_idco_number.
+      idoc_status-status = lc_idoc_error.
+      zptpcl_i1058_ordchg=>gv_idoc_err = abap_true.
+      idoc_status-msgty  = if_mrm_constants=>gc_msgty_e.
+      idoc_status-msgid  = lc_msgid.
+      idoc_status-msgno  = lc_msgno_001.
+      idoc_status-msgv1  = zptpcl_i1058_ordchg=>gv_po_num.
+      idoc_status-msgv2  = space.
+      idoc_status-msgv3  = space.
+      idoc_status-msgv4  = space.
+      idoc_status-repid  = sy-repid.
+      APPEND idoc_status.
+    ENDIF.
+  ELSE.
+    IF line_exists( idoc_status[ status = lc_idoc_error ] ) AND
+       line_exists( idoc_status[ status =  lc_idoc_sucess ] ).
+      DELETE idoc_status WHERE status =  lc_idoc_sucess.
+    ENDIF.
+  ENDIF.
+ENDFUNCTION.
