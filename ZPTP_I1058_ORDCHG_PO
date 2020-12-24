@@ -1,0 +1,151 @@
+FUNCTION zptp_i1058_ordchg_po.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(IV_PO_NUM) LIKE  BAPIMEPOHEADER-PO_NUMBER
+*"     VALUE(IV_HEADER_CHANGE) LIKE  BAPIMEPOHEADER STRUCTURE
+*"        BAPIMEPOHEADER OPTIONAL
+*"     VALUE(IV_POHEADX) LIKE  BAPIMEPOHEADERX STRUCTURE
+*"        BAPIMEPOHEADERX OPTIONAL
+*"     VALUE(IV_BAPI_CALL_COUNT) TYPE  CHAR1 OPTIONAL
+*"  TABLES
+*"      IT_RETURN_PO_CHANGE STRUCTURE  BAPIRET2 OPTIONAL
+*"      IT_POITEM STRUCTURE  BAPIMEPOITEM OPTIONAL
+*"      IT_POITEMX STRUCTURE  BAPIMEPOITEMX OPTIONAL
+*"      IT_POSCHEDULE STRUCTURE  BAPIMEPOSCHEDULE OPTIONAL
+*"      IT_POSCHEDULEX STRUCTURE  BAPIMEPOSCHEDULX OPTIONAL
+*"      IT_CONDITION STRUCTURE  BAPIMEPOCONDHEADER OPTIONAL
+*"      IT_CONDITIONX STRUCTURE  BAPIMEPOCONDHEADERX OPTIONAL
+*"      IT_POTEXTHEADER STRUCTURE  BAPIMEPOTEXTHEADER OPTIONAL
+*"      IT_POTEXTITEM STRUCTURE  BAPIMEPOTEXT OPTIONAL
+*"      IT_POPARTNER STRUCTURE  BAPIEKKOP OPTIONAL
+*"      IT_IDOC_DATA STRUCTURE  EDIDD
+*"      IT_POADDRDELIVERY STRUCTURE  BAPIMEPOADDRDELIVERY OPTIONAL
+*"----------------------------------------------------------------------
+*&-----------------------------------------------------------------------*
+*& Change History:                                                       *
+*&=======================================================================*
+*& Date       | Request #  | Changed By   | Description                  *
+*&-----------------------------------------------------------------------*
+** CR_1839   11/30/2020   S4DK952570   24093840     Additional Mapping for
+**                                                  existing ORDCHG
+*&=======================================================================*
+  CONSTANTS : lc_ptp_1059     TYPE c LENGTH 9 VALUE 'ZPTP_1059'. " For export to PTPI1059
+  DATA :      lv_memory_1059  TYPE char20. " For Export to PTPI1059
+
+  IF iv_bapi_call_count IS NOT INITIAL.
+* Export final BAPI call flag to output routine 964
+    EXPORT lv_call_count FROM iv_bapi_call_count TO MEMORY ID iv_po_num. "Added by 24072555 on 29th Aug 2020
+  ENDIF.
+  IF it_idoc_data[] IS NOT INITIAL.
+    CONCATENATE iv_po_num lc_ptp_1059 INTO lv_memory_1059.
+    "Routine - 964 RV61B964
+    EXPORT lt_idoc FROM it_idoc_data TO DATABASE indx(zk) ID lv_memory_1059. " Added by IDOC_INPUT_ORDCHG to capture IDOC DATA in PTPI1059
+  ENDIF.
+  CALL FUNCTION 'BAPI_PO_CHANGE' "#EC CI_USAGE_OK[2438131]
+    EXPORTING
+      purchaseorder  = iv_po_num
+      poheader       = iv_header_change
+      poheaderx      = iv_poheadx
+    TABLES
+      return         = it_return_po_change
+      poitem         = it_poitem
+      poitemx        = it_poitemx
+      poaddrdelivery = it_poaddrdelivery " Added for CR_1839 by 24093780 on 11/30/2020
+      poschedule     = it_poschedule
+      poschedulex    = it_poschedulex
+      pocondheader   = it_condition
+      pocondheaderx  = it_conditionx
+      potextheader   = it_potextheader
+      potextitem     = it_potextitem
+      popartner      = it_popartner.
+
+  IF line_exists( it_return_po_change[ type = 'E' ] ) OR line_exists( it_return_po_change[ type = 'A' ] ).
+    ROLLBACK WORK.
+  ELSE.
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = abap_true.
+  ENDIF.
+  CALL FUNCTION 'DEQUEUE_ALL'
+    EXPORTING
+      _synchron = 'X'.
+ENDFUNCTION.
+
+
+***************************************************************************
+**  Title             :  ORDCHG FROM E2OPEN to S4                         *
+**  INCLUDE           :  ZOTCI1084_INPUT_ORDCHG                           *
+**  Author            :  Kishore.S                                        *
+**  Creation Date     :  07/29/2020                                       *
+**  Object ID         :  OTCI1084                                         *
+**  Business Contact  :  Ashish Singh                                     *
+**  TS Name           :  TS_OTCI1084_Sales_Order_Change from E2OPEN       *
+**  TS Author         :  Kishore.S                                        *
+**  Description       :  Update Sales Order                               *
+**  Transport Request :  S4DK921693                                       *
+**  Misc Notes        :                                                   *
+**&-----------------------------------------------------------------------*
+**& Change History:                                                       *
+**&=======================================================================*
+**& Date       | Request #  | Changed By   | Description                  *
+**&-----------------------------------------------------------------------*
+**&            |            |              |                              *
+**&-----------------------------------------------------------------------*
+***&----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Include          ZOTCI1084_INPUT_ORDCHG
+*&---------------------------------------------------------------------*
+
+  lr_jstat = VALUE #( ( sign = lc_inf option = lc_equal low = lc_e0005 )
+                                        ( sign = lc_inf option = lc_equal low = lc_e0006 )
+                                        ( sign = lc_inf option = lc_equal low = lc_e0007 )
+                                        ( sign = lc_inf option = lc_equal low = lc_e0008 ) ).
+
+
+  lv_memory_1084_exp     = |{ xvbap-vbeln }| && |{ lc_otc_1084 }|.
+*  lv_memory_1084_exp_csp = |{ xvbap-vbeln }| && |{ lc_otc_1084 }| && 'C'.
+  lv_memory_1084_exp_csp = |{ xvbap-vbeln }| && |{ lc_otc_csp }|.
+
+  CLEAR: lv_check_gts_block_exist_tmp ,
+         lv_csp_line_item_tmp.
+
+  "Export flag is triggered in FM ZOTC_I1084_ORDCHG.
+  IMPORT lv_check_gts_block_exist TO lv_check_gts_block_exist_tmp FROM DATABASE indx(zk) ID lv_memory_1084_exp.
+  lv_check_gts_block_exist = lv_check_gts_block_exist_tmp.
+  DELETE FROM DATABASE indx(zk) ID lv_memory_1084_exp.
+
+  IMPORT lv_csp_line_item TO lv_csp_line_item_tmp FROM DATABASE indx(zk) ID lv_memory_1084_exp_csp.
+  lv_csp_line_item = lv_csp_line_item_tmp.
+  DELETE FROM DATABASE indx(zk) ID lv_memory_1084_exp_csp.
+
+* Populate gv_check_gts_block_exist variable with X if CSP is called from ZOTC_I1084_ORDCHG
+  IF lv_check_gts_block_exist IS NOT INITIAL.
+    zotccl_i1084_ordchg=>gv_check_gts_block_exist = lv_check_gts_block_exist.
+  ENDIF.
+
+  IF lv_csp_line_item IS NOT INITIAL.
+    zotccl_i1084_ordchg=>gv_csp_line_item = lv_csp_line_item.
+  ENDIF.
+
+  IF zotccl_i1084_ordchg=>gv_check_gts_block_exist EQ abap_true.
+    CLEAR zotccl_i1084_ordchg=>gv_check_gts_block_exist.
+    "Chek if VBAP line item is contained in Line item changed for object 1084
+    IF line_exists( zotccl_i1084_ordchg=>gt_order_item_in[ itm_number = xvbap-posnr ] ) OR
+       zotccl_i1084_ordchg=>gv_csp_line_item EQ  xvbap-posnr .
+      LOOP AT lt_status_list ASSIGNING <lfs_status_list> WHERE stat IN lr_jstat.
+        "GTS block active
+        IF <lfs_status_list>-inact EQ space.
+          "Check if GTS released lock
+          IF NOT line_exists( lt_estat_release[ estat  = <lfs_status_list>-stat ] ) .
+*           OTCI1084 BAPI SO CHANGE Triggers from RFC and without RFC.
+            zotccl_i1084_ordchg=>gv_gts_block_exist = abap_true. "Return variable when called without RFC
+            lv_memory_1084 = |{ xvbap-vbeln }| && |{ lc_otc_imp }|.
+*            When OTCI1084 BAPI SO CHANGE Triggers from RFC
+            EXPORT lv_gts_block_exist FROM zotccl_i1084_ordchg=>gv_gts_block_exist TO DATABASE indx(zk) ID lv_memory_1084.
+            EXIT.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+    ENDIF.
+  ENDIF.
